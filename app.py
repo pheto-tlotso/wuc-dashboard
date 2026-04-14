@@ -218,6 +218,210 @@ with tab1:
             )
             st.plotly_chart(fig2, use_container_width=True)
 
+        # ── TIME-OF-DAY LEAK DISTRIBUTION ─────────────────────────
+        st.divider()
+        st.subheader("🕐 When Do Leaks Happen? Time-of-Day Distribution")
+
+        # Extract hour from iot — already predicted above, reuse it
+        iot_tod = iot.copy()
+        if 'hour' not in iot_tod.columns:
+            if 'timestamp' in iot_tod.columns:
+                iot_tod['hour'] = pd.to_datetime(
+                    iot_tod['timestamp'], errors='coerce').dt.hour
+            else:
+                st.warning("No timestamp or hour column found — cannot plot time distribution.")
+                iot_tod = None
+
+        if iot_tod is not None:
+            leaks_tod = iot_tod[iot_tod['predicted_leak'] == 1].copy()
+            hourly = (
+                leaks_tod.groupby('hour').size()
+                .reset_index(name='leak_count')
+            )
+            all_hours = pd.DataFrame({'hour': range(24)})
+            hourly = all_hours.merge(hourly, on='hour', how='left').fillna(0)
+            hourly['leak_count'] = hourly['leak_count'].astype(int)
+
+            bar_colors_tod = [
+                '#E63946' if 2 <= h <= 4 else '#1D7874'
+                for h in hourly['hour']
+            ]
+
+            fig_tod = go.Figure()
+            fig_tod.add_trace(go.Bar(
+                x=hourly['hour'],
+                y=hourly['leak_count'],
+                marker_color=bar_colors_tod,
+                name='Leak Anomalies',
+                hovertemplate='Hour %{x}:00 — %{y} anomalies<extra></extra>'
+            ))
+            fig_tod.add_vrect(
+                x0=1.5, x1=4.5,
+                fillcolor='rgba(230, 57, 70, 0.12)',
+                line_width=0,
+                annotation_text='Min Night Flow<br>Window (2–4 AM)',
+                annotation_position='top left',
+                annotation_font_size=11,
+                annotation_font_color='#E63946'
+            )
+            fig_tod.update_layout(
+                title='Leak Anomaly Count by Hour of Day (selected zones)',
+                xaxis_title='Hour of Day (24h)',
+                yaxis_title='Number of Anomalies Detected',
+                xaxis=dict(tickmode='linear', tick0=0, dtick=1),
+                plot_bgcolor='rgba(0,0,0,0)',
+                showlegend=False,
+                height=380,
+                margin=dict(t=50, b=40, l=40, r=20)
+            )
+            st.plotly_chart(fig_tod, use_container_width=True)
+
+            mnf_leaks     = int(hourly[hourly['hour'].between(2, 4)]['leak_count'].sum())
+            morning_leaks = int(hourly[hourly['hour'].between(6, 9)]['leak_count'].sum())
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric(
+                "2–4 AM Leaks (MNF Window)", mnf_leaks,
+                help="Minimum Night Flow — true loss signal"
+            )
+            m2.metric(
+                "6–9 AM Leaks (Morning Surge)", morning_leaks,
+                help="Includes legitimate demand events"
+            )
+            m3.metric(
+                "MNF vs Morning Ratio",
+                f"{round(mnf_leaks / morning_leaks, 2):.2f}x"
+                if morning_leaks > 0 else "N/A",
+                help=">1.0 confirms leaks concentrate at night, not morning"
+            )
+            st.caption(
+                "🔴 **Red bars** = Minimum Night Flow window (2–4 AM). "
+                "Flow at this hour has near-zero legitimate demand, so anomalies "
+                "here are true NRW losses. Morning spikes reflect demand surges, "
+                "not leakage."
+            )
+
+        # ── PER-ZONE MNF BREAKDOWN ─────────────────────────────────
+        st.divider()
+        st.subheader("🗺️ Minimum Night Flow Leakage by Zone")
+
+        if iot_tod is not None:
+            zone_col = 'zone_id' if 'zone_id' in iot_tod.columns else 'zone'
+
+            mnf_zone = iot_tod[
+                iot_tod['hour'].between(2, 4) &
+                (iot_tod['predicted_leak'] == 1)
+            ].copy()
+
+            flow_col = next(
+                (c for c in ['flow_rate_m3hr','flow_rate','flow_m3hr']
+                 if c in mnf_zone.columns), None
+            )
+            pres_col = next(
+                (c for c in ['pressure_bar','pressure']
+                 if c in mnf_zone.columns), None
+            )
+
+            agg_mnf = {'mnf_leak_count': (zone_col, 'count')}
+            if flow_col: agg_mnf['avg_flow_rate'] = (flow_col, 'mean')
+            if pres_col: agg_mnf['avg_pressure']  = (pres_col, 'mean')
+
+            zone_mnf = (
+                mnf_zone.groupby(zone_col)
+                .agg(**agg_mnf)
+                .reset_index()
+                .rename(columns={zone_col: 'zone_id'})
+                .sort_values('mnf_leak_count', ascending=False)
+            )
+
+            # Ensure all 8 zones appear even with 0 leaks
+            zone_mnf = (
+                pd.DataFrame({'zone_id': all_zones})
+                .merge(zone_mnf, on='zone_id', how='left')
+                .fillna(0)
+            )
+            zone_mnf['mnf_leak_count'] = zone_mnf['mnf_leak_count'].astype(int)
+            if flow_col: zone_mnf['avg_flow_rate'] = zone_mnf['avg_flow_rate'].round(2)
+            if pres_col: zone_mnf['avg_pressure']  = zone_mnf['avg_pressure'].round(2)
+
+            # Horizontal bar chart — sorted ascending for horizontal orientation
+            zone_sorted = zone_mnf.sort_values('mnf_leak_count', ascending=True)
+            n_zones     = len(zone_sorted)
+            bar_colors_zone = [
+                '#E63946' if i >= n_zones - 3 else '#1D7874'
+                for i in range(n_zones)
+            ]
+
+            customdata_cols = []
+            if flow_col and 'avg_flow_rate' in zone_sorted.columns:
+                customdata_cols.append(zone_sorted['avg_flow_rate'].values)
+            if pres_col and 'avg_pressure' in zone_sorted.columns:
+                customdata_cols.append(zone_sorted['avg_pressure'].values)
+
+            hover_template = '<b>%{y}</b><br>MNF Anomalies: %{x}'
+            if flow_col: hover_template += '<br>Avg Flow Rate: %{customdata[0]:.2f} m³/h'
+            if pres_col: hover_template += '<br>Avg Pressure: %{customdata[1]:.2f} bar'
+            hover_template += '<extra></extra>'
+
+            fig_zone = go.Figure()
+            fig_zone.add_trace(go.Bar(
+                x=zone_sorted['mnf_leak_count'],
+                y=zone_sorted['zone_id'],
+                orientation='h',
+                marker_color=bar_colors_zone,
+                hovertemplate=hover_template,
+                customdata=np.column_stack(customdata_cols)
+                           if customdata_cols else None,
+            ))
+            fig_zone.update_layout(
+                title='MNF Window (2–4 AM) Leak Anomalies per Zone',
+                xaxis_title='Number of Leak Anomalies',
+                yaxis_title='Zone',
+                plot_bgcolor='rgba(0,0,0,0)',
+                showlegend=False,
+                height=380,
+                margin=dict(t=50, b=40, l=80, r=20)
+            )
+            st.plotly_chart(fig_zone, use_container_width=True)
+
+            # Zone MNF summary table
+            st.markdown("**Zone-level MNF Summary**")
+            zone_display = zone_mnf.copy()
+            q66 = zone_display['mnf_leak_count'].quantile(0.66)
+            q33 = zone_display['mnf_leak_count'].quantile(0.33)
+            zone_display['risk_flag'] = zone_display['mnf_leak_count'].apply(
+                lambda x: '🔴 High'   if x >= q66
+                     else '🟡 Medium' if x >= q33
+                     else '🟢 Low'
+            )
+
+            rename_map = {'zone_id': 'Zone', 'mnf_leak_count': 'MNF Anomalies',
+                          'risk_flag': 'Risk Level'}
+            if flow_col: rename_map['avg_flow_rate'] = 'Avg Flow Rate (m³/h)'
+            if pres_col: rename_map['avg_pressure']  = 'Avg Pressure (bar)'
+            zone_display = zone_display.rename(columns=rename_map)
+
+            st.dataframe(
+                zone_display.sort_values('MNF Anomalies', ascending=False)
+                            .reset_index(drop=True),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # CEO insight callout
+            worst_mnf_zone  = zone_mnf.loc[zone_mnf['mnf_leak_count'].idxmax(), 'zone_id']
+            worst_mnf_count = int(zone_mnf['mnf_leak_count'].max())
+            total_mnf_leaks = int(zone_mnf['mnf_leak_count'].sum())
+            worst_mnf_pct   = (round(worst_mnf_count / total_mnf_leaks * 100, 1)
+                               if total_mnf_leaks > 0 else 0)
+
+            st.info(
+                f"📍 **{worst_mnf_zone}** accounts for **{worst_mnf_pct}%** of all "
+                f"MNF-window leak anomalies ({worst_mnf_count} of {total_mnf_leaks} total). "
+                f"This zone should be prioritised for physical inspection and "
+                f"pressure management intervention."
+            )
+
     except Exception as e:
         st.error(f"Tab 1 error: {e}")
         import traceback; st.code(traceback.format_exc())
