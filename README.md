@@ -1,7 +1,7 @@
 # 💧 WUC NRW Reduction Prototype
 
 **Client:** Water Utilities Corporation Botswana (WUC)  
-**Built by:** Rooteddeck Analytics — Tlotso Tshepang Pheto (Junior Data Analyst)  
+**Built by:** Rooteddeck Analytics — Tlotso T Pheto ( Revenue and Operational Analyst)  
 **Sprint:** 17 March – 20 April 2026 · 5 weeks · 25 working days  
 **Stack:** Python · AWS · Streamlit · Power BI  
 **Region:** AWS af-south-1 (Cape Town)
