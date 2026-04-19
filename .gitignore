@@ -1,7 +1,33 @@
- .streamlit/secrets.toml
-__pycache__/
-*.pyc
+# Environment & secrets — NEVER commit
 .env
-*.pkl
-*.csv
--p
+*.env
+
+# Model artefacts — stored in S3, not git
+models/*.pkl
+models/*.joblib
+models/*.h5
+!models/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Data — sample data only; real data never committed
+data/raw/
+data/processed/
+!data/sample/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
