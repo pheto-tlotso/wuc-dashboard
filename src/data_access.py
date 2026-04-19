@@ -79,30 +79,16 @@ def load_json_from_s3(key: str) -> dict:
 
 
 def load_sensor_data() -> pd.DataFrame:
-    """Load the main sensor readings dataset."""
-    return load_csv_from_s3(f"{_PREFIX_DATA}sensor_readings.csv")
+    return load_csv_from_s3(f"{_PREFIX_DATA}iot_features.csv")
 
 
 def load_pipe_data() -> pd.DataFrame:
-    """Load the pipe inventory / inspection dataset."""
-    return load_csv_from_s3(f"{_PREFIX_DATA}pipe_inventory.csv")
+    return load_csv_from_s3(f"{_PREFIX_DATA}pipe_risk_scores.csv")
 
 
 def load_forecast_data() -> pd.DataFrame:
-    """
-    Load precomputed Prophet forecast output.
-    Returns empty DataFrame if unavailable — callers must check .empty.
-    """
-    return load_csv_from_s3(f"{_PREFIX_DATA}demand_forecast.csv")
+    return load_csv_from_s3(f"{_PREFIX_DATA}demand_forecasts_6month.csv")
 
 
-def load_metrics(model_name: str) -> dict:
-    """
-    Load a model's evaluation metrics JSON.
-
-    Parameters
-    ----------
-    model_name : str
-        One of: 'leak_detection', 'water_quality', 'pipe_risk', 'demand_forecast'
-    """
-    return load_json_from_s3(f"{_PREFIX_METRICS}{model_name}_metrics.json")
+def load_billing_data() -> pd.DataFrame:
+    return load_csv_from_s3(f"{_PREFIX_DATA}billing_features.csv")
