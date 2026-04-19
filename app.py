@@ -32,9 +32,12 @@ REGION = 'af-south-1'
 
 # ── S3 connection — uses IAM role, no hardcoded keys ──────────────
 def get_s3():
+    from botocore import UNSIGNED
+    from botocore.config import Config
     return boto3.client(
         's3',
-        region_name = st.secrets['AWS_DEFAULT_REGION'],
+        region_name='af-south-1',
+        config=Config(signature_version=UNSIGNED)
     )
 
 @st.cache_data(ttl=300)
